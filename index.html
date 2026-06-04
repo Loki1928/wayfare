@@ -96,7 +96,15 @@ background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/sv
 .slide-caption{font-family:'Fraunces',serif;color:#f5f0e8;text-align:center;margin-top:22px;font-size:clamp(1.1rem,3.5vw,1.7rem);font-weight:400;line-height:1.3;text-shadow:0 2px 20px rgba(0,0,0,.6);animation:captionIn 1s .3s cubic-bezier(.22,1,.36,1) both;}
 .slide-meta{font-family:'Inter Tight',sans-serif;color:rgba(245,240,232,.55);font-size:12px;margin-top:8px;letter-spacing:.08em;text-transform:uppercase;animation:captionIn 1s .5s ease both;}
 @keyframes captionIn{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
-.recap-progress{position:absolute;bottom:0;left:0;height:3px;background:#c2632f;z-index:10;}
+.recap-progress{position:absolute;top:0;left:0;right:0;z-index:10;display:flex;gap:4px;padding:14px 14px 0;}
+.recap-progress .seg{flex:1;height:3px;border-radius:2px;background:rgba(245,240,232,.25);overflow:hidden;}
+.recap-progress .seg>i{display:block;height:100%;width:0;background:#f5f0e8;border-radius:2px;}
+.kb-frame{max-width:min(420px,82vw);max-height:52vh;border:8px solid #fff;box-shadow:0 20px 60px rgba(0,0,0,.7);overflow:hidden;animation:slideIn .8s cubic-bezier(.22,1,.36,1) both;}
+.kb-frame img{width:100%;height:100%;object-fit:cover;display:block;filter:sepia(15%) contrast(1.08) brightness(.93);transform-origin:center;animation:kenburns 6s ease-out both;}
+@keyframes kenburns{from{transform:scale(1.02) translate(0,0)}to{transform:scale(1.16) translate(-1.5%,-2%)}}
+.recap-tap{position:absolute;top:0;bottom:0;width:33%;z-index:5;cursor:pointer;}
+.recap-tap.left{left:0;}
+.recap-tap.right{right:0;width:67%;}
 .stat-card{background:rgba(245,240,232,.07);border:1px solid rgba(245,240,232,.12);border-radius:16px;padding:18px 24px;text-align:center;backdrop-filter:blur(6px);}
 .fade-in{opacity:0;animation:fadeUp .5s ease forwards;}
 @keyframes fadeUp{to{opacity:1;transform:none}from{opacity:0;transform:translateY(8px)}}
@@ -173,9 +181,11 @@ background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/sv
 <div id="recapOverlay">
   <div class="recap-grain"></div>
   <div class="recap-vignette"></div>
+  <div class="recap-progress" id="recapProgress"></div>
+  <div class="recap-tap left" id="recapTapPrev"></div>
+  <div class="recap-tap right" id="recapTapNext"></div>
   <button id="recapClose" style="position:absolute;top:20px;right:20px;z-index:20;color:rgba(245,240,232,.5);font-size:26px;cursor:pointer;border:none;background:none;padding:4px;" onmouseover="this.style.color='#f5f0e8'" onmouseout="this.style.color='rgba(245,240,232,.5)'">✕</button>
   <div id="recapSlide"></div>
-  <div class="recap-progress" id="recapProgress" style="width:0%"></div>
 </div>
 
 <!-- MAIN APP -->
@@ -267,7 +277,10 @@ background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/sv
         <span class="online-dot"></span>
         <span style="font-size:12px;color:#7a7268;font-weight:500;">Live sync on</span>
       </div>
-      <div id="trip-code-display"></div>
+      <div style="display:flex;align-items:center;gap:10px;">
+        <div id="trip-code-display"></div>
+        <button onclick="leaveTrip()" title="Leave this trip" style="display:inline-flex;align-items:center;gap:4px;font-size:12px;color:#7a7268;border:1.5px solid #e4dbd0;background:#fffdf8;border-radius:8px;padding:5px 10px;cursor:pointer;font-family:'Inter Tight',sans-serif;font-weight:600;">↩ Leave</button>
+      </div>
     </div>
 
     <div id="home-stats" style="display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-bottom:18px;" class="fade-in stagger-2"></div>
@@ -338,10 +351,30 @@ background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/sv
         <p class="section-label" style="margin-bottom:12px;">Balances</p>
         <div id="balance-list"></div>
       </div>
-      <div class="card">
-        <p class="section-label" style="margin-bottom:12px;">Who pays whom</p>
+      <div class="card" style="margin-bottom:12px;">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
+          <p class="section-label" style="margin:0;">Who still owes whom</p>
+          <button id="record-payment-toggle" class="btn-secondary btn-sm" onclick="toggleRecordPayment()">+ Record a payment</button>
+        </div>
+        <div id="record-payment-form" style="display:none;background:#f5f0e8;border-radius:14px;padding:14px;margin-bottom:14px;">
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px;">
+            <div><label class="field-label">From (paid)</label><select id="pay-from" class="field"></select></div>
+            <div><label class="field-label">To (received)</label><select id="pay-to" class="field"></select></div>
+          </div>
+          <label class="field-label">Amount (₹)</label>
+          <input id="pay-amount" class="field" type="number" inputmode="decimal" min="0" step="0.01" placeholder="0" style="margin-bottom:6px;"/>
+          <p id="pay-hint" style="font-size:12px;color:#7a7268;margin:0 0 10px;min-height:16px;"></p>
+          <div style="display:flex;gap:8px;">
+            <button class="btn-primary btn-sm" style="flex:1;" onclick="recordPayment()">Record payment</button>
+            <button class="btn-secondary btn-sm" onclick="toggleRecordPayment()">Cancel</button>
+          </div>
+        </div>
         <div id="transfer-list"></div>
         <div id="closing-note" style="margin-top:16px;background:#f5f0e8;border-radius:12px;padding:14px;font-family:'Fraunces',serif;font-size:1rem;line-height:1.55;"></div>
+      </div>
+      <div id="payments-card" class="card" style="display:none;">
+        <p class="section-label" style="margin-bottom:12px;">Payments recorded</p>
+        <div id="payments-log"></div>
       </div>
     </div>
   </div>
@@ -423,7 +456,7 @@ background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/sv
       <p style="font-size:13px;color:#7a7268;margin:0;line-height:1.5;">One tap to publish your trip publicly so anyone planning the same destination can find your real costs, stays and tips.</p>
     </div>
     <div style="margin-top:16px;" class="fade-in stagger-4">
-      <button onclick="confirmReset()" style="width:100%;padding:12px;font-size:13px;color:#8f3520;border:1.5px dashed #e4dbd0;border-radius:12px;background:none;cursor:pointer;font-family:'Inter Tight',sans-serif;font-weight:600;">🗑 End trip &amp; start new</button>
+      <button onclick="leaveTrip()" style="width:100%;padding:12px;font-size:13px;color:#8f3520;border:1.5px dashed #e4dbd0;border-radius:12px;background:none;cursor:pointer;font-family:'Inter Tight',sans-serif;font-weight:600;">↩ Leave trip (data stays saved · rejoin with code)</button>
     </div>
   </div>
 
@@ -461,7 +494,7 @@ const $ = id => document.getElementById(id);
 // ── STATE ──
 let state = {
   tripName:"", destination:"", tripType:"", startDate:"", endDate:"",
-  people:[], expenses:[], places:[], tripCode:""
+  people:[], expenses:[], places:[], payments:[], tripCode:""
 };
 let splitSel = new Set();
 let pendingExpPhoto = null;
@@ -509,7 +542,41 @@ function computeBalances(){
     net[e.payerId]+=e.paise;
     const sh=fairShares(e.paise,e.sharedBy.filter(id=>net[id]!==undefined));
     Object.entries(sh).forEach(([id,a])=>{net[id]-=a;});
-  });return net;
+  });
+  // Apply recorded settlement payments: a payment from A to B settles part of A's debt.
+  (state.payments||[]).forEach(pm=>{
+    if(net[pm.from]===undefined||net[pm.to]===undefined)return;
+    net[pm.from]+=pm.paise;
+    net[pm.to]-=pm.paise;
+  });
+  return net;
+}
+// Each person's actual share of the bill (only expenses they were part of).
+function computeShares(){
+  const share={};state.people.forEach(p=>{share[p.id]=0;});
+  state.expenses.forEach(e=>{
+    const ids=e.sharedBy.filter(id=>share[id]!==undefined);
+    const sh=fairShares(e.paise,ids);
+    Object.entries(sh).forEach(([id,a])=>{share[id]+=a;});
+  });return share;
+}
+// How much each person actually paid out of pocket.
+function computePaidByPerson(){
+  const paid={};state.people.forEach(p=>{paid[p.id]=0;});
+  state.expenses.forEach(e=>{if(paid[e.payerId]!==undefined)paid[e.payerId]+=e.paise;});
+  return paid;
+}
+// Distinct people who were included in at least one expense.
+function expenseParticipantCount(){
+  const set=new Set();
+  state.expenses.forEach(e=>e.sharedBy.forEach(id=>{if(state.people.some(p=>p.id===id))set.add(id);}));
+  return set.size;
+}
+// "Per head" = total divided only by people who were actually in a split.
+function perHeadPaise(){
+  const total=state.expenses.reduce((s,e)=>s+e.paise,0);
+  const n=expenseParticipantCount()||state.people.length||1;
+  return Math.round(total/n);
 }
 function settle(net){
   const d=[],c=[];
@@ -643,7 +710,7 @@ async function finishOnboarding(){
   try {
     await fbSet('trips/'+code, {
       meta:{ tripName:tname, destination:dest, tripType:state.tripType, startDate:state.startDate, endDate:state.endDate, people:state.people, createdAt:Date.now() },
-      expenses:{}, places:{}
+      expenses:{}, places:{}, payments:{}
     });
     saveLocal();
     await subscribeToTrip(code);
@@ -675,6 +742,7 @@ async function subscribeToTrip(code){
       // expenses: object → array
       state.expenses=data.expenses?Object.values(data.expenses).sort((a,b)=>a.id>b.id?1:-1):[];
       state.places=data.places?Object.values(data.places).sort((a,b)=>a.id>b.id?1:-1):[];
+      state.payments=data.payments?Object.values(data.payments).sort((a,b)=>(a.at||0)-(b.at||0)):[];
       splitSel=new Set(state.people.map(p=>p.id));
       // Re-render current screen
       const activeScreen=document.querySelector('.screen.active');
@@ -714,7 +782,7 @@ function renderHome(){
 
   const totalPaise=state.expenses.reduce((s,e)=>s+e.paise,0);
   const photos=[...state.expenses,...state.places].filter(x=>x.photoData).length;
-  const perHead=state.people.length>0?Math.round(totalPaise/state.people.length):0;
+  const perHead=perHeadPaise();
   $('home-stats').innerHTML=`
     <div class="card-sm" style="text-align:center;padding:14px 8px;">
       <div style="font-family:'Fraunces',serif;font-size:1.3rem;font-weight:600;">${inr(totalPaise)}</div>
@@ -895,6 +963,8 @@ function renderSettle(){
   $('settle-section').style.display=has?'block':'none';
   if(!has)return;
   const net=computeBalances();
+  const shares=computeShares();
+  const paid=computePaidByPerson();
   const bl=$('balance-list');bl.innerHTML='';
   state.people.forEach(p=>{
     const v=net[p.id]||0;
@@ -902,30 +972,114 @@ function renderSettle(){
     if(v>0){txt='gets back '+inr(v);cls='gets-back';}
     else if(v<0){txt='owes '+inr(-v);cls='owes';}
     else{txt='all square';cls='square';}
-    bl.innerHTML+=`<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid #e4dbd0;"><span style="font-weight:600;">${esc(p.name)}</span><span class="${cls}">${txt}</span></div>`;
+    bl.innerHTML+=`<div style="padding:10px 0;border-bottom:1px solid #e4dbd0;">
+      <div style="display:flex;justify-content:space-between;align-items:center;">
+        <span style="font-weight:600;">${esc(p.name)}</span>
+        <span class="${cls}">${txt}</span>
+      </div>
+      <div style="font-size:11px;color:#a89e94;margin-top:3px;">share ${inr(shares[p.id]||0)} · paid ${inr(paid[p.id]||0)}</div>
+    </div>`;
   });
+  // Populate the record-payment selects (keep current choices if possible)
+  const fromSel=$('pay-from'),toSel=$('pay-to');
+  const prevFrom=fromSel.value,prevTo=toSel.value;
+  fromSel.innerHTML='';toSel.innerHTML='';
+  state.people.forEach(p=>{
+    fromSel.insertAdjacentHTML('beforeend',`<option value="${p.id}">${esc(p.name)}</option>`);
+    toSel.insertAdjacentHTML('beforeend',`<option value="${p.id}">${esc(p.name)}</option>`);
+  });
+  if(prevFrom)fromSel.value=prevFrom;
+  if(prevTo)toSel.value=prevTo;
+
   const transfers=settle(net);
   const tl=$('transfer-list');tl.innerHTML='';
   if(transfers.length===0){
-    tl.innerHTML=`<p style="color:#3a6b4f;font-weight:700;font-size:14px;">Everyone's even — nothing to settle! 🎉</p>`;
+    tl.innerHTML=`<p style="color:#3a6b4f;font-weight:700;font-size:14px;">Everyone's even — nothing left to settle! 🎉</p>`;
   } else {
     transfers.forEach(t=>{
-      tl.innerHTML+=`<div style="display:flex;align-items:center;gap:8px;padding:10px 0;border-bottom:1px solid #e4dbd0;">
+      const row=document.createElement('div');
+      row.style.cssText='display:flex;align-items:center;gap:8px;padding:10px 0;border-bottom:1px solid #e4dbd0;';
+      row.innerHTML=`
         <span style="font-weight:700;color:#8f3520;">${esc(nameOf(t.from))}</span>
         <span style="color:#7a7268;">→</span>
         <span style="font-weight:700;color:#3a6b4f;">${esc(nameOf(t.to))}</span>
         <span style="margin-left:auto;font-family:'Fraunces',serif;font-size:1rem;font-weight:600;">${inr(t.paise)}</span>
-      </div>`;
+        <button class="btn-secondary btn-sm" style="padding:5px 10px;font-size:12px;">Settle</button>`;
+      row.querySelector('button').onclick=()=>quickSettle(t.from,t.to,t.paise);
+      tl.appendChild(row);
     });
   }
+  // Payments log
+  const pc=$('payments-card'),plog=$('payments-log');
+  const payments=state.payments||[];
+  pc.style.display=payments.length?'block':'none';
+  plog.innerHTML='';
+  [...payments].reverse().forEach(pm=>{
+    const row=document.createElement('div');
+    row.style.cssText='display:flex;align-items:center;gap:8px;padding:10px 0;border-bottom:1px solid #e4dbd0;';
+    const when=pm.at?new Date(pm.at).toLocaleDateString('en-IN',{day:'numeric',month:'short'}):'';
+    row.innerHTML=`
+      <div style="flex:1;min-width:0;">
+        <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
+          <span style="font-weight:700;color:#8f3520;">${esc(nameOf(pm.from))}</span>
+          <span style="color:#7a7268;">paid</span>
+          <span style="font-weight:700;color:#3a6b4f;">${esc(nameOf(pm.to))}</span>
+        </div>
+        ${when?`<div style="font-size:11px;color:#a89e94;margin-top:2px;">${when}</div>`:''}
+      </div>
+      <span style="font-family:'Fraunces',serif;font-weight:600;">${inr(pm.paise)}</span>
+      <button data-action="del-pay" style="font-size:14px;color:#8f3520;border:none;background:none;cursor:pointer;font-weight:600;flex-shrink:0;">✕</button>`;
+    row.querySelector('[data-action="del-pay"]').onclick=()=>removePayment(pm.id);
+    plog.appendChild(row);
+  });
   const total=state.expenses.reduce((s,e)=>s+e.paise,0);
   $('closing-note').innerHTML=buildClosingNote(total,net);
+}
+
+// ── SETTLEMENT PAYMENTS ──
+function toggleRecordPayment(){
+  const f=$('record-payment-form');
+  const open=f.style.display==='none';
+  f.style.display=open?'block':'none';
+  if(open){$('pay-hint').textContent='';setTimeout(()=>$('pay-amount').focus(),60);}
+}
+function quickSettle(fromId,toId,maxPaise){
+  const f=$('record-payment-form');
+  f.style.display='block';
+  $('pay-from').value=fromId;
+  $('pay-to').value=toId;
+  $('pay-amount').value=(maxPaise/100).toFixed(maxPaise%100===0?0:2);
+  $('pay-hint').textContent=`Suggested full amount: ${inr(maxPaise)}. Edit it for a part payment.`;
+  $('record-payment-form').scrollIntoView({behavior:'smooth',block:'center'});
+  setTimeout(()=>$('pay-amount').focus(),60);
+}
+async function recordPayment(){
+  const from=$('pay-from').value,to=$('pay-to').value;
+  const amt=parseFloat($('pay-amount').value);
+  if(from===to){$('pay-hint').textContent='Pick two different people.';return;}
+  if(!(amt>0)){$('pay-hint').textContent='Enter an amount.';return;}
+  const id=uid();
+  const pm={id,from,to,paise:Math.round(amt*100),at:Date.now()};
+  syncStart();
+  try{
+    await fbSet('trips/'+state.tripCode+'/payments/'+id,pm);
+    syncDone();
+    toast(`${nameOf(from)} → ${nameOf(to)} ${inr(pm.paise)} recorded ✓`);
+    $('pay-amount').value='';$('pay-hint').textContent='';
+    $('record-payment-form').style.display='none';
+  }catch(e){syncDone();$('pay-hint').textContent='Error: '+e.message;}
+}
+async function removePayment(id){
+  if(!confirm('Remove this payment record?'))return;
+  syncStart();
+  await fbRemove('trips/'+state.tripCode+'/payments/'+id);
+  syncDone();toast('Payment removed');
 }
 
 function buildClosingNote(total,net){
   const n=state.people.length,count=state.expenses.length;
   if(!n||!count)return '';
-  const avg=inr(Math.round(total/n));
+  const avg=inr(perHeadPaise());
   const big=state.expenses.reduce((a,b)=>b.paise>a.paise?b:a);
   const paid={};state.people.forEach(p=>paid[p.id]=0);
   state.expenses.forEach(e=>{if(paid[e.payerId]!==undefined)paid[e.payerId]+=e.paise;});
@@ -1064,22 +1218,42 @@ function buildSlides(){
   state.expenses.forEach(e=>{if(paid[e.payerId]!==undefined)paid[e.payerId]+=e.paise;});
   let topId=state.people[0]?.id;state.people.forEach(p=>{if(paid[p.id]>paid[topId])topId=p.id;});
   const big=state.expenses.length?state.expenses.reduce((a,b)=>b.paise>a.paise?b:a):null;
+  const topPlace=[...state.places].filter(p=>p.rating).sort((a,b)=>b.rating-a.rating)[0];
+  const net=computeBalances();
+  const transfers=settle(net);
   const slides=[{type:'title'}];
   photos.forEach(p=>slides.push({type:'photo',...p}));
-  slides.push({type:'stats',total:inr(total),perHead:inr(Math.round(total/Math.max(state.people.length,1))),topPayer:nameOf(topId),biggest:big?big.desc:'',biggestAmt:big?inr(big.paise):''});
+  if(topPlace)slides.push({type:'place',name:topPlace.name,rating:topPlace.rating,placeType:topPlace.placeType,notes:topPlace.notes||''});
+  slides.push({type:'stats',total:inr(total),perHead:inr(perHeadPaise()),topPayer:nameOf(topId),biggest:big?big.desc:'',biggestAmt:big?inr(big.paise):''});
+  if(state.expenses.length)slides.push({type:'settle',transfers:transfers.map(t=>({from:nameOf(t.from),to:nameOf(t.to),amt:inr(t.paise)}))});
   slides.push({type:'end'});
   return slides;
 }
-function slideDur(s){return s.type==='title'?3000:s.type==='photo'?4500:s.type==='stats'?5500:4000;}
+function slideDur(s){return s.type==='title'?3200:s.type==='photo'?4500:s.type==='place'?4500:s.type==='stats'?5500:s.type==='settle'?5000:4200;}
+function buildSegments(){
+  const prog=$('recapProgress');prog.innerHTML='';
+  recapSlides.forEach(()=>{prog.insertAdjacentHTML('beforeend','<div class="seg"><i></i></div>');});
+}
+function setSegments(idx){
+  const segs=$('recapProgress').querySelectorAll('.seg>i');
+  segs.forEach((bar,i)=>{
+    if(i<idx){bar.style.transition='none';bar.style.width='100%';}
+    else if(i>idx){bar.style.transition='none';bar.style.width='0%';}
+    else{
+      bar.style.transition='none';bar.style.width='0%';
+      requestAnimationFrame(()=>{bar.style.transition=`width ${slideDur(recapSlides[idx])}ms linear`;bar.style.width='100%';});
+    }
+  });
+}
 function renderRecapSlide(idx){
   const s=recapSlides[idx],el=$('recapSlide');el.innerHTML='';
-  const prog=$('recapProgress');
-  prog.style.transition='none';prog.style.width=(idx/recapSlides.length*100)+'%';
-  requestAnimationFrame(()=>{prog.style.transition=`width ${slideDur(s)}ms linear`;prog.style.width=((idx+1)/recapSlides.length*100)+'%';});
+  setSegments(idx);
   if(s.type==='title'){
     el.innerHTML=`<div style="text-align:center;"><p style="color:rgba(245,240,232,.45);font-family:'Inter Tight',sans-serif;font-size:11px;letter-spacing:.2em;text-transform:uppercase;margin-bottom:16px;">A Wayfare Story</p><div style="font-size:40px;margin-bottom:16px;">${tripTypeEmoji[state.tripType]||'🗺️'}</div><h2 style="font-family:'Fraunces',serif;color:#f5f0e8;font-size:clamp(2.2rem,7vw,4.5rem);font-weight:500;letter-spacing:-.02em;line-height:1.1;margin:0 0 12px;">${esc(state.tripName)}</h2><p style="font-family:'Caveat',cursive;color:rgba(245,240,232,.55);font-size:1.4rem;">${esc(state.destination)} · ${state.people.map(p=>esc(p.name)).join(', ')}</p></div>`;
   } else if(s.type==='photo'){
-    el.innerHTML=`<img src="${s.src}" class="slide-photo" alt=""/><p class="slide-caption">${esc(s.caption)}</p><p class="slide-meta">${esc(s.meta)}</p>`;
+    el.innerHTML=`<div class="kb-frame"><img src="${s.src}" alt=""/></div><p class="slide-caption">${esc(s.caption)}</p><p class="slide-meta">${esc(s.meta)}</p>`;
+  } else if(s.type==='place'){
+    el.innerHTML=`<div style="text-align:center;max-width:420px;"><p style="color:rgba(245,240,232,.45);font-family:'Inter Tight',sans-serif;font-size:11px;letter-spacing:.2em;text-transform:uppercase;margin-bottom:14px;">Top rated spot</p><div style="font-size:48px;margin-bottom:10px;">${placeTypeEmoji[s.placeType]||'📍'}</div><h2 style="font-family:'Fraunces',serif;color:#f5f0e8;font-size:clamp(1.8rem,6vw,3rem);font-weight:500;margin:0 0 10px;">${esc(s.name)}</h2><p style="color:#d4842a;font-size:1.4rem;margin:0 0 14px;">${'★'.repeat(s.rating)}<span style="color:rgba(245,240,232,.2);">${'★'.repeat(5-s.rating)}</span></p>${s.notes?`<p style="font-family:'Caveat',cursive;color:rgba(245,240,232,.6);font-size:1.3rem;line-height:1.4;">"${esc(s.notes)}"</p>`:''}</div>`;
   } else if(s.type==='stats'){
     el.innerHTML=`<p style="color:rgba(245,240,232,.45);font-family:'Inter Tight',sans-serif;font-size:11px;letter-spacing:.2em;text-transform:uppercase;margin-bottom:24px;text-align:center;">By the numbers</p>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;max-width:380px;width:100%;">
@@ -1088,28 +1262,75 @@ function renderRecapSlide(idx){
         <div class="stat-card"><p style="color:rgba(245,240,232,.5);font-size:10px;letter-spacing:.1em;text-transform:uppercase;font-family:'Inter Tight',sans-serif;margin:0 0 6px;">Biggest</p><p style="font-family:'Caveat',cursive;color:#f5f0e8;font-size:1.2rem;margin:0 0 2px;">${esc(s.biggest)}</p><p style="font-family:'Fraunces',serif;color:#c2632f;font-size:1.3rem;font-weight:600;margin:0;">${esc(s.biggestAmt)}</p></div>
         <div class="stat-card"><p style="color:rgba(245,240,232,.5);font-size:10px;letter-spacing:.1em;text-transform:uppercase;font-family:'Inter Tight',sans-serif;margin:0 0 6px;">Top wallet</p><p style="font-family:'Fraunces',serif;color:#f5f0e8;font-size:1.6rem;font-weight:500;margin:0;">${esc(s.topPayer)}</p></div>
       </div>`;
+  } else if(s.type==='settle'){
+    const rows=s.transfers.length===0
+      ? `<p style="font-family:'Caveat',cursive;color:#7cc59a;font-size:1.8rem;text-align:center;">Everyone's square 🎉</p>`
+      : s.transfers.map(t=>`<div style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid rgba(245,240,232,.12);"><span style="color:#e89b86;font-weight:700;">${esc(t.from)}</span><span style="color:rgba(245,240,232,.4);">→</span><span style="color:#7cc59a;font-weight:700;">${esc(t.to)}</span><span style="margin-left:auto;font-family:'Fraunces',serif;color:#f5f0e8;font-weight:600;">${esc(t.amt)}</span></div>`).join('');
+    el.innerHTML=`<div style="max-width:380px;width:100%;"><p style="color:rgba(245,240,232,.45);font-family:'Inter Tight',sans-serif;font-size:11px;letter-spacing:.2em;text-transform:uppercase;margin-bottom:20px;text-align:center;">Settling up</p>${rows}</div>`;
   } else {
     el.innerHTML=`<div style="text-align:center;"><p style="font-size:3rem;margin-bottom:16px;">🧳</p><h2 style="font-family:'Fraunces',serif;color:#f5f0e8;font-size:clamp(1.8rem,5vw,3rem);font-weight:400;margin:0 0 12px;">Until next time.</h2><p style="font-family:'Caveat',cursive;color:rgba(245,240,232,.55);font-size:1.3rem;margin:0 0 32px;">${state.people.map(p=>esc(p.name)).join(' · ')}</p><p style="color:rgba(245,240,232,.25);font-family:'Inter Tight',sans-serif;font-size:11px;letter-spacing:.15em;text-transform:uppercase;">Wayfare — your trip, your story</p></div>`;
   }
 }
-function nextSlide(){
-  if(recapIdx<recapSlides.length-1){
-    $('recapSlide').style.opacity='0';$('recapSlide').style.transform='scale(1.03)';
-    setTimeout(()=>{$('recapSlide').style.transition='none';$('recapSlide').style.opacity='';$('recapSlide').style.transform='';recapIdx++;renderRecapSlide(recapIdx);scheduleNext();},400);
-    $('recapSlide').style.transition='opacity .4s ease, transform .4s ease';
-  } else closeRecap();
+function goToSlide(idx){
+  if(idx<0)idx=0;
+  if(idx>recapSlides.length-1){closeRecap();return;}
+  const el=$('recapSlide');
+  el.style.transition='opacity .35s ease, transform .35s ease';
+  el.style.opacity='0';el.style.transform='scale(1.02)';
+  setTimeout(()=>{
+    el.style.transition='none';el.style.opacity='';el.style.transform='';
+    recapIdx=idx;renderRecapSlide(recapIdx);scheduleNext();
+  },350);
 }
+function nextSlide(){ goToSlide(recapIdx+1); }
+function prevSlide(){ goToSlide(recapIdx-1); }
 function scheduleNext(){clearTimeout(recapTimer);recapTimer=setTimeout(nextSlide,slideDur(recapSlides[recapIdx]));}
+
+// Hold-to-pause: freeze the active progress segment and the timer.
+let recapPausedAt=0,recapHoldTimer=null,recapHeld=false;
+function pauseRecap(){
+  clearTimeout(recapTimer);
+  const bar=$('recapProgress').querySelectorAll('.seg>i')[recapIdx];
+  if(bar){const w=getComputedStyle(bar).width;bar.style.transition='none';bar.style.width=w;}
+  document.querySelector('#recapSlide .kb-frame img')?.style.setProperty('animation-play-state','paused');
+}
+function resumeRecap(){
+  const seg=$('recapProgress').querySelectorAll('.seg')[recapIdx];
+  const bar=seg?.querySelector('i');
+  if(bar&&seg){
+    const filled=parseFloat(getComputedStyle(bar).width)/parseFloat(getComputedStyle(seg).width);
+    const remain=Math.max(400,slideDur(recapSlides[recapIdx])*(1-filled));
+    requestAnimationFrame(()=>{bar.style.transition=`width ${remain}ms linear`;bar.style.width='100%';});
+    document.querySelector('#recapSlide .kb-frame img')?.style.setProperty('animation-play-state','running');
+    clearTimeout(recapTimer);recapTimer=setTimeout(nextSlide,remain);
+  } else scheduleNext();
+}
+function recapTapStart(){
+  recapHeld=false;
+  recapHoldTimer=setTimeout(()=>{recapHeld=true;pauseRecap();},220);
+}
+function recapTapEnd(dir){
+  clearTimeout(recapHoldTimer);
+  if(recapHeld){recapHeld=false;resumeRecap();return;}
+  if(dir==='prev')prevSlide();else nextSlide();
+}
 function openRecap(){
   const photos=[...state.expenses,...state.places].filter(x=>x.photoData);
   if(photos.length===0){toast('Add photos to play a recap');return;}
   recapSlides=buildSlides();recapIdx=0;
   $('recapOverlay').classList.add('active');
+  buildSegments();
   renderRecapSlide(0);scheduleNext();
-  $('recapSlide').onclick=()=>{clearTimeout(recapTimer);nextSlide();};
 }
-function closeRecap(){clearTimeout(recapTimer);$('recapOverlay').classList.remove('active');$('recapProgress').style.width='0%';}
+function closeRecap(){clearTimeout(recapTimer);clearTimeout(recapHoldTimer);$('recapOverlay').classList.remove('active');$('recapProgress').innerHTML='';}
 $('recapClose').onclick=closeRecap;
+// Tap zones: left = previous, right = next, hold = pause
+['Prev','Next'].forEach(z=>{
+  const zone=$('recapTap'+z),dir=z==='Prev'?'prev':'next';
+  zone.addEventListener('pointerdown',recapTapStart);
+  zone.addEventListener('pointerup',()=>recapTapEnd(dir));
+  zone.addEventListener('pointerleave',()=>{clearTimeout(recapHoldTimer);if(recapHeld){recapHeld=false;resumeRecap();}});
+});
 
 // ── PUBLISH ──
 function renderPublish(){
@@ -1127,7 +1348,7 @@ function renderPublish(){
       </div>
       <div style="padding:20px;display:grid;grid-template-columns:1fr 1fr;gap:12px;">
         <div><p style="font-size:11px;color:#7a7268;font-weight:700;letter-spacing:.06em;text-transform:uppercase;margin:0 0 4px;">Total spent</p><p style="font-family:'Fraunces',serif;font-size:1.4rem;font-weight:600;margin:0;">${inr(total)}</p></div>
-        <div><p style="font-size:11px;color:#7a7268;font-weight:700;letter-spacing:.06em;text-transform:uppercase;margin:0 0 4px;">Per head</p><p style="font-family:'Fraunces',serif;font-size:1.4rem;font-weight:600;margin:0;">${inr(Math.round(total/Math.max(state.people.length,1)))}</p></div>
+        <div><p style="font-size:11px;color:#7a7268;font-weight:700;letter-spacing:.06em;text-transform:uppercase;margin:0 0 4px;">Per head</p><p style="font-family:'Fraunces',serif;font-size:1.4rem;font-weight:600;margin:0;">${inr(perHeadPaise())}</p></div>
         ${bestStay?`<div><p style="font-size:11px;color:#7a7268;font-weight:700;letter-spacing:.06em;text-transform:uppercase;margin:0 0 4px;">Best stay</p><p style="font-size:13px;font-weight:600;margin:0;">${esc(bestStay.name)} ${'⭐'.repeat(bestStay.rating)}</p></div>`:''}
         ${bestFood?`<div><p style="font-size:11px;color:#7a7268;font-weight:700;letter-spacing:.06em;text-transform:uppercase;margin:0 0 4px;">Best food</p><p style="font-size:13px;font-weight:600;margin:0;">${esc(bestFood.name)} ${'⭐'.repeat(bestFood.rating)}</p></div>`:''}
         <div><p style="font-size:11px;color:#7a7268;font-weight:700;letter-spacing:.06em;text-transform:uppercase;margin:0 0 4px;">Photos</p><p style="font-size:13px;font-weight:600;margin:0;">${photos} memories</p></div>
@@ -1145,16 +1366,18 @@ function downloadSharePage(){
   const polaroids=photos.map((p,i)=>`<div style="background:#fff;padding:8px 8px 30px;box-shadow:0 3px 16px rgba(0,0,0,.15);border-radius:2px;transform:rotate(${rots[i%rots.length]}deg);display:inline-block;margin:8px;vertical-align:top;"><img src="${p.src}" style="width:150px;height:150px;object-fit:cover;display:block;filter:sepia(10%) contrast(1.05);"/><div style="text-align:center;font-family:Georgia,serif;font-size:12px;color:#3a3530;margin-top:4px;padding:0 4px;">${esc(p.cap)}</div></div>`).join('');
   const balRows=state.people.map(p=>{const v=net[p.id]||0;const c=v>0?'#3a6b4f':v<0?'#8f3520':'#7a7268';const t=v>0?'gets back '+inr(v):v<0?'owes '+inr(-v):'all square';return `<tr><td style="padding:8px 0;font-weight:600;">${esc(p.name)}</td><td style="padding:8px 0;color:${c};font-weight:700;text-align:right;">${t}</td></tr>`;}).join('');
   const txRows=transfers.length===0?'<p style="color:#3a6b4f;font-weight:700;">Everyone\'s even 🎉</p>':transfers.map(t=>`<p style="margin:6px 0;"><strong style="color:#8f3520;">${esc(nameOf(t.from))}</strong> → <strong style="color:#3a6b4f;">${esc(nameOf(t.to))}</strong> &nbsp;<strong>${inr(t.paise)}</strong></p>`).join('');
+  const payRows=(state.payments||[]).map(pm=>`<p style="margin:6px 0;font-size:13px;color:#5a544b;"><strong style="color:#8f3520;">${esc(nameOf(pm.from))}</strong> paid <strong style="color:#3a6b4f;">${esc(nameOf(pm.to))}</strong> &nbsp;<strong>${inr(pm.paise)}</strong></p>`).join('');
   const placesHTML=state.places.map(p=>`<div style="border:1px solid #e4dbd0;border-radius:12px;padding:14px;margin-bottom:10px;background:#fff;"><span style="font-size:12px;color:#7a7268;font-weight:600;">${placeTypeEmoji[p.placeType]||'📍'} ${(p.placeType||'').toUpperCase()}</span><div style="font-weight:700;font-size:15px;margin:4px 0;">${esc(p.name)}</div>${p.rating?`<div style="color:#d4842a;font-size:13px;">${'★'.repeat(p.rating)} ${p.rating}/5</div>`:''} ${p.cost?`<div style="font-size:13px;color:#7a7268;">₹${(p.cost/100).toFixed(0)} / ${p.per}</div>`:''} ${p.notes?`<div style="font-size:13px;color:#7a7268;margin-top:6px;font-style:italic;">"${esc(p.notes)}"</div>`:''}</div>`).join('');
   const html=`<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><title>${esc(state.tripName)} — Wayfare</title><link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600&family=Inter+Tight:wght@400;600&display=swap" rel="stylesheet"/><style>body{margin:0;padding:24px 16px;background:#f5f0e8;font-family:'Inter Tight',sans-serif;color:#1e1b16;max-width:600px;margin:0 auto;}h1,h2{font-family:'Fraunces',serif;}h1{font-size:2.2rem;margin:0 0 4px;}h2{font-size:1.3rem;margin:32px 0 12px;}</style></head><body>
 <p style="font-size:11px;letter-spacing:.2em;text-transform:uppercase;color:#c2632f;margin-bottom:6px;">Wayfare Trip Report</p>
 <h1>${esc(state.tripName)}</h1>
 <p style="color:#7a7268;margin:0 0 4px;">${esc(state.destination)} · ${state.people.map(p=>esc(p.name)).join(', ')}</p>
-<p style="font-size:1.4rem;font-family:'Fraunces',serif;font-weight:600;margin:8px 0 0;">${inr(total)} total · ${inr(Math.round(total/Math.max(state.people.length,1)))} per head</p>
+<p style="font-size:1.4rem;font-family:'Fraunces',serif;font-weight:600;margin:8px 0 0;">${inr(total)} total · ${inr(perHeadPaise())} per head</p>
 ${photos.length>0?`<h2>Memories</h2><div style="display:flex;flex-wrap:wrap;padding:12px 0;">${polaroids}</div>`:''}
 ${state.places.length>0?`<h2>Places</h2>${placesHTML}`:''}
 <h2>Expenses</h2><table style="width:100%;border-collapse:collapse;">${state.expenses.map(e=>`<tr><td style="padding:8px 0;border-bottom:1px solid #e4dbd0;">${esc(e.desc)}</td><td style="padding:8px 0;border-bottom:1px solid #e4dbd0;color:#7a7268;font-size:13px;">${esc(nameOf(e.payerId))}</td><td style="padding:8px 0;border-bottom:1px solid #e4dbd0;text-align:right;font-weight:700;">${inr(e.paise)}</td></tr>`).join('')}</table>
-<h2>Settle Up</h2><table style="width:100%;border-collapse:collapse;">${balRows}</table><div style="margin-top:12px;">${txRows}</div>
+<h2>Settle Up</h2><table style="width:100%;border-collapse:collapse;">${balRows}</table><div style="margin-top:12px;"><p style="font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#7a7268;margin:0 0 8px;">Still owed</p>${txRows}</div>
+${payRows?`<div style="margin-top:16px;"><p style="font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#7a7268;margin:0 0 8px;">Payments recorded</p>${payRows}</div>`:''}
 <div style="margin-top:32px;background:#fff;border-radius:14px;padding:18px;font-family:'Fraunces',serif;font-size:1rem;line-height:1.6;">${buildClosingNote(total,net)}</div>
 <p style="margin-top:40px;font-size:11px;color:#b0a898;text-align:center;">Made with Wayfare — your trip, your story · Coming to Pathalog</p>
 </body></html>`;
@@ -1180,7 +1403,7 @@ async function downloadPDF(){
     doc.text(state.destination,W/2,64,{align:'center'});
     const total=state.expenses.reduce((s,e)=>s+e.paise,0);
     doc.setFont('helvetica','bold');doc.setFontSize(14);doc.setTextColor(30,27,22);
-    doc.text(`${inr(total)} total · ${inr(Math.round(total/Math.max(state.people.length,1)))} per head`,W/2,76,{align:'center'});
+    doc.text(`${inr(total)} total · ${inr(perHeadPaise())} per head`,W/2,76,{align:'center'});
     doc.setFont('helvetica','normal');doc.setFontSize(11);doc.setTextColor(125,114,104);
     doc.text(state.people.map(p=>p.name).join('  ·  '),W/2,88,{align:'center',maxWidth:160});
     doc.setDrawColor(194,99,47);doc.setLineWidth(.4);doc.line(m+20,98,W-m-20,98);
@@ -1241,13 +1464,16 @@ async function downloadPDF(){
   btn.textContent='⬇ Download Memory Book PDF';btn.disabled=false;
 }
 
-// ── RESET ──
-async function confirmReset(){
-  if(confirm('End this trip? Data stays in Firebase — you can rejoin with the trip code. This just clears your local session.')){
+// ── LEAVE / RESET ──
+function leaveTrip(){
+  if(confirm('Leave this trip?\n\nYour data stays saved online — rejoin anytime with code '+state.tripCode+'. This just signs you out on this device and goes back to the start screen.')){
     if(fbUnsubscribe) fbUnsubscribe();
     localStorage.removeItem(STORE);
     location.reload();
   }
+}
+async function confirmReset(){
+  leaveTrip();
 }
 
 // ── INIT ──
