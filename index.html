@@ -525,8 +525,8 @@ let pendingPlaceBusy = false;
 // 4. Done. Until you fill these in, images still work (stored in Firebase as before),
 //    but PDFs need Cloudinary because they are too big to keep in the database.
 const CLOUDINARY = {
-  cloudName: "",      // <-- paste your Cloudinary cloud name here
-  uploadPreset: ""    // <-- paste your unsigned upload preset name here
+  cloudName: "ddtrgzata",      // <-- paste your Cloudinary cloud name here
+  uploadPreset: "WayFare"    // <-- paste your unsigned upload preset name here
 };
 function cloudinaryReady(){ return !!(CLOUDINARY.cloudName && CLOUDINARY.uploadPreset); }
 
