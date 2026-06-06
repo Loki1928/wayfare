@@ -1,4 +1,14 @@
 <!DOCTYPE html>
+<!--
+  WAYFARE — file storage setup (one time, ~3 minutes):
+  Photos work out of the box (stored in Firebase as before).
+  To store MORE photos + attach PDFs, set up free Cloudinary storage:
+    1. Sign up free at https://cloudinary.com
+    2. Console → Settings → Upload → "Add upload preset" → Signing mode: Unsigned → Save
+    3. Note your Cloud name (top of the Cloudinary dashboard) and the preset name
+    4. Open the main <script> below, find the CLOUDINARY = { } block, paste both values
+  Free tier is generous for testing. To scale later, the handoff notes mention Cloudflare R2.
+-->
 <html lang="en">
 <head>
 <meta charset="UTF-8"/>
@@ -331,8 +341,8 @@ background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/sv
         </div>
         <label class="field-label">📸 Photo <span style="font-size:10px;font-weight:400;color:#7a7268;">optional</span></label>
         <div class="upload-zone" id="exp-upload-zone" onclick="document.getElementById('exp-photo-input').click()" style="margin-bottom:16px;">
-          <input type="file" id="exp-photo-input" accept="image/*" style="display:none;"/>
-          <div id="exp-upload-prompt"><p style="color:#7a7268;font-size:13px;margin:0;">Tap to add receipt or photo</p></div>
+          <input type="file" id="exp-photo-input" accept="image/*,application/pdf" style="display:none;"/>
+          <div id="exp-upload-prompt"><p style="color:#7a7268;font-size:13px;margin:0;">Tap to add a receipt, photo or PDF</p></div>
           <div id="exp-upload-preview" style="display:none;flex-direction:column;align-items:center;gap:8px;">
             <img id="exp-preview-img" src="" alt="" style="width:64px;height:64px;object-fit:cover;border-radius:10px;"/>
             <button onclick="event.stopPropagation();clearExpPhoto()" style="font-size:12px;color:#8f3520;font-weight:600;border:none;background:none;cursor:pointer;">Remove</button>
@@ -414,8 +424,8 @@ background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/sv
         <textarea id="place-notes" class="field" rows="2" placeholder="Would you recommend it? Tips for others…" maxlength="200" style="resize:none;margin-bottom:14px;"></textarea>
         <label class="field-label">📸 Photo <span style="font-size:10px;font-weight:400;color:#7a7268;">optional</span></label>
         <div class="upload-zone" id="place-upload-zone" onclick="document.getElementById('place-photo-input').click()" style="margin-bottom:16px;">
-          <input type="file" id="place-photo-input" accept="image/*" style="display:none;"/>
-          <div id="place-upload-prompt"><p style="color:#7a7268;font-size:13px;margin:0;">Tap to add a photo</p></div>
+          <input type="file" id="place-photo-input" accept="image/*,application/pdf" style="display:none;"/>
+          <div id="place-upload-prompt"><p style="color:#7a7268;font-size:13px;margin:0;">Tap to add a photo or PDF</p></div>
           <div id="place-upload-preview" style="display:none;flex-direction:column;align-items:center;gap:8px;">
             <img id="place-preview-img" src="" alt="" style="width:64px;height:64px;object-fit:cover;border-radius:10px;"/>
             <button onclick="event.stopPropagation();clearPlacePhoto()" style="font-size:12px;color:#8f3520;font-weight:600;border:none;background:none;cursor:pointer;">Remove</button>
@@ -504,6 +514,90 @@ let currentPlaceType = "stay";
 let editingExpId = null;
 let editingPlaceId = null;
 let fbUnsubscribe = null;
+let pendingExpBusy = false;
+let pendingPlaceBusy = false;
+
+// ── CLOUDINARY (free file storage) ──
+// Setup once (4 steps): see the note at the top of this file's <head>.
+// 1. Make a free account at cloudinary.com
+// 2. Settings → Upload → add an "Unsigned" upload preset
+// 3. Paste your Cloud name + the preset name below
+// 4. Done. Until you fill these in, images still work (stored in Firebase as before),
+//    but PDFs need Cloudinary because they are too big to keep in the database.
+const CLOUDINARY = {
+  cloudName: "",      // <-- paste your Cloudinary cloud name here
+  uploadPreset: ""    // <-- paste your unsigned upload preset name here
+};
+function cloudinaryReady(){ return !!(CLOUDINARY.cloudName && CLOUDINARY.uploadPreset); }
+
+const PDF_ICON = "data:image/svg+xml,"+encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48"><rect width="48" height="48" rx="8" fill="#f0ebe0"/><path d="M15 9h13l7 7v21a2 2 0 0 1-2 2H15a2 2 0 0 1-2-2V11a2 2 0 0 1 2-2z" fill="#fff" stroke="#c2632f" stroke-width="2"/><path d="M28 9v7h7" fill="none" stroke="#c2632f" stroke-width="2"/><text x="24" y="33" font-family="Arial" font-size="9" font-weight="bold" fill="#8f3520" text-anchor="middle">PDF</text></svg>');
+
+// Upload a file (or a base64 data URI) to Cloudinary, return the hosted URL.
+async function uploadToCloudinary(fileOrDataUrl, kind){
+  const resource = kind==='pdf' ? 'auto' : 'image';
+  const url = `https://api.cloudinary.com/v1_1/${CLOUDINARY.cloudName}/${resource}/upload`;
+  const fd = new FormData();
+  fd.append('file', fileOrDataUrl);
+  fd.append('upload_preset', CLOUDINARY.uploadPreset);
+  const res = await fetch(url, { method:'POST', body: fd });
+  if(!res.ok){ const t=await res.text().catch(()=> ''); throw new Error('Cloudinary '+res.status+' '+t.slice(0,120)); }
+  const j = await res.json();
+  if(!j.secure_url) throw new Error('No URL returned');
+  return j.secure_url;
+}
+
+// Attachment helpers (shared by expenses + places)
+function isImg(x){ return !!(x && x.photoData && x.attachKind!=='pdf'); }
+function isPdf(x){ return !!(x && x.photoData && x.attachKind==='pdf'); }
+function attachThumb(item, fallbackEmoji, cls){
+  const phc = cls==='place-card-photo' ? 'place-card-photo-placeholder' : 'exp-photo-placeholder';
+  if(!item.photoData) return `<div class="${phc}">${fallbackEmoji}</div>`;
+  if(item.attachKind==='pdf') return `<a href="${item.photoData}" target="_blank" rel="noopener" class="${phc}" style="text-decoration:none;cursor:pointer;" onclick="event.stopPropagation()" title="Open PDF">📄</a>`;
+  return `<img src="${item.photoData}" class="${cls}" alt=""/>`;
+}
+
+// Shared picker: handles both image and PDF, for either form ('exp' | 'place')
+async function handleAttachPick(file, which){
+  if(!file) return;
+  const pdf = (file.type==='application/pdf') || /\.pdf$/i.test(file.name||'');
+  const ids = which==='exp'
+    ? {img:'exp-preview-img', zone:'exp-upload-zone', prompt:'exp-upload-prompt', preview:'exp-upload-preview'}
+    : {img:'place-preview-img', zone:'place-upload-zone', prompt:'place-upload-prompt', preview:'place-upload-preview'};
+
+  if(pdf && !cloudinaryReady()){
+    toast('Add your free Cloudinary details (top of the code) to attach PDFs');
+    return;
+  }
+
+  // show preview zone + busy state
+  $(ids.prompt).style.display='none';
+  $(ids.preview).style.display='flex';
+  $(ids.zone).classList.add('has-file');
+  $(ids.img).src = pdf ? PDF_ICON : '';
+  $(ids.img).style.opacity = '0.5';
+  setAttachBusy(which, true);
+  toast(pdf ? 'Uploading PDF…' : 'Uploading photo…');
+
+  try {
+    let url, kind = pdf ? 'pdf' : 'image';
+    if(pdf){
+      url = await uploadToCloudinary(file, 'pdf');
+    } else {
+      const dataUrl = await new Promise(res => compressImage(file, res));
+      $(ids.img).src = dataUrl;
+      url = cloudinaryReady() ? await uploadToCloudinary(dataUrl, 'image') : dataUrl;
+    }
+    $(ids.img).style.opacity = '1';
+    const pend = { url, kind, name: file.name||'' };
+    if(which==='exp') pendingExpPhoto = pend; else pendingPlacePhoto = pend;
+    setAttachBusy(which, false);
+  } catch(err){
+    setAttachBusy(which, false);
+    if(which==='exp') clearExpPhoto(); else clearPlacePhoto();
+    toast('Upload failed: '+err.message);
+  }
+}
+function setAttachBusy(which,b){ if(which==='exp') pendingExpBusy=b; else pendingPlaceBusy=b; }
 
 // ── FIREBASE HELPERS ──
 function fbRef(path){ return window._fb.ref(window._fb.db, path); }
@@ -781,7 +875,7 @@ function renderHome(){
   $('trip-code-display').innerHTML=`<div class="trip-code-badge" onclick="copyTripCode()">📋 ${esc(state.tripCode)}</div>`;
 
   const totalPaise=state.expenses.reduce((s,e)=>s+e.paise,0);
-  const photos=[...state.expenses,...state.places].filter(x=>x.photoData).length;
+  const photos=[...state.expenses,...state.places].filter(isImg).length;
   const perHead=perHeadPaise();
   $('home-stats').innerHTML=`
     <div class="card-sm" style="text-align:center;padding:14px 8px;">
@@ -811,10 +905,10 @@ function renderHome(){
       const el=document.createElement('div');
       el.style.cssText='display:flex;align-items:center;gap:12px;padding:12px 0;border-bottom:1px solid #e4dbd0;';
       if(item._type==='expense'){
-        const ph=item.photoData?`<img src="${item.photoData}" class="exp-photo" alt=""/>`:`<div class="exp-photo-placeholder">💸</div>`;
+        const ph=attachThumb(item,'💸','exp-photo');
         el.innerHTML=`${ph}<div style="flex:1;min-width:0;"><div style="font-weight:600;font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(item.desc||'Expense')}</div><div style="font-size:12px;color:#7a7268;">${esc(nameOf(item.payerId))} paid</div></div><div style="font-weight:700;font-size:14px;font-family:'Fraunces',serif;white-space:nowrap;">${inr(item.paise)}</div>`;
       } else {
-        const ph=item.photoData?`<img src="${item.photoData}" class="exp-photo" alt=""/>`:`<div class="exp-photo-placeholder">${placeTypeEmoji[item.placeType]||'📍'}</div>`;
+        const ph=attachThumb(item,placeTypeEmoji[item.placeType]||'📍','exp-photo');
         const stars=item.rating?'⭐'.repeat(item.rating):'';
         el.innerHTML=`${ph}<div style="flex:1;min-width:0;"><div style="font-weight:600;font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(item.name||'Place')}</div><div style="font-size:12px;color:#7a7268;">${placeTypeEmoji[item.placeType]||''} ${esc(item.placeType||'')} ${stars}</div></div>${item.cost?`<div style="font-weight:700;font-size:14px;font-family:'Fraunces',serif;white-space:nowrap;">${inr(item.cost)}</div>`:''}`;
       }
@@ -858,15 +952,9 @@ function compressImage(file,cb){
 
 $('exp-photo-input').addEventListener('change',function(){
   const f=this.files[0];if(!f)return;
-  compressImage(f,data=>{
-    pendingExpPhoto={data};
-    $('exp-preview-img').src=data;
-    $('exp-upload-zone').classList.add('has-file');
-    $('exp-upload-prompt').style.display='none';
-    $('exp-upload-preview').style.display='flex';
-  });
+  handleAttachPick(f,'exp');
 });
-function clearExpPhoto(){ pendingExpPhoto=null;$('exp-photo-input').value='';$('exp-upload-zone').classList.remove('has-file');$('exp-upload-prompt').style.display='block';$('exp-upload-preview').style.display='none'; }
+function clearExpPhoto(){ pendingExpPhoto=null;pendingExpBusy=false;$('exp-photo-input').value='';$('exp-upload-zone').classList.remove('has-file');$('exp-upload-prompt').style.display='block';$('exp-upload-preview').style.display='none';$('exp-preview-img').style.opacity='1'; }
 
 async function addExpense(){
   const desc=$('exp-desc').value.trim();
@@ -876,18 +964,19 @@ async function addExpense(){
   if(!(amt>0)){flashExpHint('Enter an amount.');return;}
   if(!payerId){flashExpHint('Pick who paid.');return;}
   if(sharedBy.length===0){flashExpHint('Select who to split between.');return;}
+  if(pendingExpBusy){flashExpHint('Still uploading the file, one sec…');return;}
   const btn=$('add-expense-form').querySelector('.btn-primary');
   btn.disabled=true;btn.textContent='Saving…';
   syncStart();
   try {
     if(editingExpId){
       const existing=state.expenses.find(e=>e.id===editingExpId);
-      const updated={...existing, desc:desc||'Expense', paise:Math.round(amt*100), payerId, sharedBy, photoData:pendingExpPhoto?pendingExpPhoto.data:(existing.photoData||null)};
+      const updated={...existing, desc:desc||'Expense', paise:Math.round(amt*100), payerId, sharedBy, photoData:pendingExpPhoto?pendingExpPhoto.url:(existing.photoData||null), attachKind:pendingExpPhoto?pendingExpPhoto.kind:(existing.attachKind||null), attachName:pendingExpPhoto?(pendingExpPhoto.name||null):(existing.attachName||null)};
       await fbUpdate('trips/'+state.tripCode+'/expenses/'+editingExpId, updated);
       toast('Expense updated ✓');
     } else {
       const id=uid();
-      const exp={id, desc:desc||'Expense', paise:Math.round(amt*100), payerId, sharedBy, photoData:pendingExpPhoto?pendingExpPhoto.data:null};
+      const exp={id, desc:desc||'Expense', paise:Math.round(amt*100), payerId, sharedBy, photoData:pendingExpPhoto?pendingExpPhoto.url:null, attachKind:pendingExpPhoto?pendingExpPhoto.kind:null, attachName:pendingExpPhoto?(pendingExpPhoto.name||null):null};
       await fbSet('trips/'+state.tripCode+'/expenses/'+id, exp);
       toast('Expense added ✓');
     }
@@ -911,8 +1000,8 @@ function startEditExpense(id){
     splitSel=new Set(e.sharedBy);
     renderExpForm();
     if(e.photoData){
-      pendingExpPhoto={data:e.photoData};
-      $('exp-preview-img').src=e.photoData;
+      pendingExpPhoto={url:e.photoData, kind:e.attachKind||'image', name:e.attachName||''};
+      $('exp-preview-img').src=(e.attachKind==='pdf')?PDF_ICON:e.photoData;
       $('exp-upload-zone').classList.add('has-file');
       $('exp-upload-prompt').style.display='none';
       $('exp-upload-preview').style.display='flex';
@@ -933,7 +1022,7 @@ function renderExpenses(){
   ord.forEach(e=>{
     const row=document.createElement('div');
     row.style.cssText='display:flex;align-items:center;gap:12px;padding:14px;background:#fffdf8;border:1.5px solid #e4dbd0;border-radius:16px;margin-bottom:10px;';
-    const ph=e.photoData?`<img src="${e.photoData}" class="exp-photo" alt=""/>`:`<div class="exp-photo-placeholder">💸</div>`;
+    const ph=attachThumb(e,'💸','exp-photo');
     row.innerHTML=`${ph}
       <div style="flex:1;min-width:0;">
         <div style="font-weight:700;font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(e.desc||'Expense')}</div>
@@ -1096,19 +1185,14 @@ function renderStars(){ document.querySelectorAll('#place-stars .star').forEach(
 
 $('place-photo-input').addEventListener('change',function(){
   const f=this.files[0];if(!f)return;
-  compressImage(f,data=>{
-    pendingPlacePhoto={data};
-    $('place-preview-img').src=data;
-    $('place-upload-zone').classList.add('has-file');
-    $('place-upload-prompt').style.display='none';
-    $('place-upload-preview').style.display='flex';
-  });
+  handleAttachPick(f,'place');
 });
-function clearPlacePhoto(){ pendingPlacePhoto=null;$('place-photo-input').value='';$('place-upload-zone').classList.remove('has-file');$('place-upload-prompt').style.display='block';$('place-upload-preview').style.display='none'; }
+function clearPlacePhoto(){ pendingPlacePhoto=null;pendingPlaceBusy=false;$('place-photo-input').value='';$('place-upload-zone').classList.remove('has-file');$('place-upload-prompt').style.display='block';$('place-upload-preview').style.display='none';$('place-preview-img').style.opacity='1'; }
 
 async function addPlace(){
   const name=$('place-name').value.trim();
   if(!name){toast('Enter a place name');$('place-name').focus();return;}
+  if(pendingPlaceBusy){toast('Still uploading the file, one sec…');return;}
   const costVal=parseFloat($('place-cost').value)||0;
   const btn=$('add-place-form').querySelector('.btn-primary');
   btn.disabled=true;btn.textContent='Saving…';
@@ -1116,12 +1200,12 @@ async function addPlace(){
   try {
     if(editingPlaceId){
       const existing=state.places.find(p=>p.id===editingPlaceId);
-      const updated={...existing, name, placeType:currentPlaceType, cost:Math.round(costVal*100), per:$('place-per').value, rating:placeRating, notes:$('place-notes').value.trim(), photoData:pendingPlacePhoto?pendingPlacePhoto.data:(existing.photoData||null)};
+      const updated={...existing, name, placeType:currentPlaceType, cost:Math.round(costVal*100), per:$('place-per').value, rating:placeRating, notes:$('place-notes').value.trim(), photoData:pendingPlacePhoto?pendingPlacePhoto.url:(existing.photoData||null), attachKind:pendingPlacePhoto?pendingPlacePhoto.kind:(existing.attachKind||null), attachName:pendingPlacePhoto?(pendingPlacePhoto.name||null):(existing.attachName||null)};
       await fbUpdate('trips/'+state.tripCode+'/places/'+editingPlaceId, updated);
       toast('Place updated ✓');
     } else {
       const id=uid();
-      const place={id, name, placeType:currentPlaceType, cost:Math.round(costVal*100), per:$('place-per').value, rating:placeRating, notes:$('place-notes').value.trim(), photoData:pendingPlacePhoto?pendingPlacePhoto.data:null};
+      const place={id, name, placeType:currentPlaceType, cost:Math.round(costVal*100), per:$('place-per').value, rating:placeRating, notes:$('place-notes').value.trim(), photoData:pendingPlacePhoto?pendingPlacePhoto.url:null, attachKind:pendingPlacePhoto?pendingPlacePhoto.kind:null, attachName:pendingPlacePhoto?(pendingPlacePhoto.name||null):null};
       await fbSet('trips/'+state.tripCode+'/places/'+id, place);
       toast('Place added ✓');
     }
@@ -1146,8 +1230,8 @@ function startEditPlace(id){
     document.querySelectorAll('#place-type-pills .type-pill').forEach(el=>{el.classList.toggle('selected',el.dataset.type===currentPlaceType);});
     placeRating=p.rating||0;renderStars();
     if(p.photoData){
-      pendingPlacePhoto={data:p.photoData};
-      $('place-preview-img').src=p.photoData;
+      pendingPlacePhoto={url:p.photoData, kind:p.attachKind||'image', name:p.attachName||''};
+      $('place-preview-img').src=(p.attachKind==='pdf')?PDF_ICON:p.photoData;
       $('place-upload-zone').classList.add('has-file');
       $('place-upload-prompt').style.display='none';
       $('place-upload-preview').style.display='flex';
@@ -1162,7 +1246,7 @@ function renderPlaces(){
   $('places-empty').style.display=state.places.length===0?'block':'none';
   [...state.places].reverse().forEach(p=>{
     const card=document.createElement('div');card.className='place-card';
-    const ph=p.photoData?`<img src="${p.photoData}" class="place-card-photo" alt=""/>`:`<div class="place-card-photo-placeholder">${placeTypeEmoji[p.placeType]||'📍'}</div>`;
+    const ph=attachThumb(p,placeTypeEmoji[p.placeType]||'📍','place-card-photo');
     const stars=p.rating?`<span class="rating-badge">${'★'.repeat(p.rating)} ${p.rating}/5</span>`:'';
     const costStr=p.cost?`${inr(p.cost)}${p.per!=='total'?' / '+p.per:''}`:'';
     card.innerHTML=`${ph}<div style="padding:14px;">
@@ -1188,8 +1272,8 @@ function renderPlaces(){
 // ── MEMORIES ──
 function renderMemories(){
   const allPhotos=[
-    ...state.expenses.filter(e=>e.photoData).map(e=>({src:e.photoData,caption:e.desc||'Expense',sub:nameOf(e.payerId)+' · '+inr(e.paise)})),
-    ...state.places.filter(p=>p.photoData).map(p=>({src:p.photoData,caption:p.name||'Place',sub:placeTypeEmoji[p.placeType]||'📍'}))
+    ...state.expenses.filter(isImg).map(e=>({src:e.photoData,caption:e.desc||'Expense',sub:nameOf(e.payerId)+' · '+inr(e.paise)})),
+    ...state.places.filter(isImg).map(p=>({src:p.photoData,caption:p.name||'Place',sub:placeTypeEmoji[p.placeType]||'📍'}))
   ];
   const grid=$('polaroid-grid');grid.innerHTML='';
   $('memories-empty').style.display=allPhotos.length===0?'block':'none';
@@ -1212,7 +1296,7 @@ function openPhotoFull(src,caption,sub){
 // ── RECAP ──
 let recapTimer=null,recapIdx=0,recapSlides=[];
 function buildSlides(){
-  const photos=[...state.expenses.filter(e=>e.photoData).map(e=>({src:e.photoData,caption:e.desc||'Expense',meta:nameOf(e.payerId)+' · '+inr(e.paise)})),...state.places.filter(p=>p.photoData).map(p=>({src:p.photoData,caption:p.name,meta:placeTypeEmoji[p.placeType]||'📍'}))];
+  const photos=[...state.expenses.filter(isImg).map(e=>({src:e.photoData,caption:e.desc||'Expense',meta:nameOf(e.payerId)+' · '+inr(e.paise)})),...state.places.filter(isImg).map(p=>({src:p.photoData,caption:p.name,meta:placeTypeEmoji[p.placeType]||'📍'}))];
   const total=state.expenses.reduce((s,e)=>s+e.paise,0);
   const paid={};state.people.forEach(p=>paid[p.id]=0);
   state.expenses.forEach(e=>{if(paid[e.payerId]!==undefined)paid[e.payerId]+=e.paise;});
@@ -1315,7 +1399,7 @@ function recapTapEnd(dir){
   if(dir==='prev')prevSlide();else nextSlide();
 }
 function openRecap(){
-  const photos=[...state.expenses,...state.places].filter(x=>x.photoData);
+  const photos=[...state.expenses,...state.places].filter(isImg);
   if(photos.length===0){toast('Add photos to play a recap');return;}
   recapSlides=buildSlides();recapIdx=0;
   $('recapOverlay').classList.add('active');
@@ -1335,7 +1419,7 @@ $('recapClose').onclick=closeRecap;
 // ── PUBLISH ──
 function renderPublish(){
   const total=state.expenses.reduce((s,e)=>s+e.paise,0);
-  const photos=[...state.expenses,...state.places].filter(x=>x.photoData).length;
+  const photos=[...state.expenses,...state.places].filter(isImg).length;
   const bestStay=state.places.filter(p=>p.placeType==='stay').sort((a,b)=>b.rating-a.rating)[0];
   const bestFood=state.places.filter(p=>p.placeType==='food').sort((a,b)=>b.rating-a.rating)[0];
   const days=state.startDate&&state.endDate?Math.ceil((new Date(state.endDate)-new Date(state.startDate))/(1000*86400)):null;
@@ -1361,7 +1445,7 @@ function renderPublish(){
 function downloadSharePage(){
   const total=state.expenses.reduce((s,e)=>s+e.paise,0);
   const net=computeBalances();const transfers=settle(net);
-  const photos=[...state.expenses.filter(e=>e.photoData).map(e=>({src:e.photoData,cap:e.desc})),...state.places.filter(p=>p.photoData).map(p=>({src:p.photoData,cap:p.name}))];
+  const photos=[...state.expenses.filter(isImg).map(e=>({src:e.photoData,cap:e.desc})),...state.places.filter(isImg).map(p=>({src:p.photoData,cap:p.name}))];
   const rots=[-3,-1.5,0.5,2,-2,1.5];
   const polaroids=photos.map((p,i)=>`<div style="background:#fff;padding:8px 8px 30px;box-shadow:0 3px 16px rgba(0,0,0,.15);border-radius:2px;transform:rotate(${rots[i%rots.length]}deg);display:inline-block;margin:8px;vertical-align:top;"><img src="${p.src}" style="width:150px;height:150px;object-fit:cover;display:block;filter:sepia(10%) contrast(1.05);"/><div style="text-align:center;font-family:Georgia,serif;font-size:12px;color:#3a3530;margin-top:4px;padding:0 4px;">${esc(p.cap)}</div></div>`).join('');
   const balRows=state.people.map(p=>{const v=net[p.id]||0;const c=v>0?'#3a6b4f':v<0?'#8f3520':'#7a7268';const t=v>0?'gets back '+inr(v):v<0?'owes '+inr(-v):'all square';return `<tr><td style="padding:8px 0;font-weight:600;">${esc(p.name)}</td><td style="padding:8px 0;color:${c};font-weight:700;text-align:right;">${t}</td></tr>`;}).join('');
@@ -1407,7 +1491,7 @@ async function downloadPDF(){
     doc.setFont('helvetica','normal');doc.setFontSize(11);doc.setTextColor(125,114,104);
     doc.text(state.people.map(p=>p.name).join('  ·  '),W/2,88,{align:'center',maxWidth:160});
     doc.setDrawColor(194,99,47);doc.setLineWidth(.4);doc.line(m+20,98,W-m-20,98);
-    const photos=[...state.expenses.filter(e=>e.photoData).map(e=>({src:e.photoData,cap:e.desc,sub:nameOf(e.payerId)+' · '+inr(e.paise)})),...state.places.filter(p=>p.photoData).map(p=>({src:p.photoData,cap:p.name,sub:(p.placeType||'')+(p.rating?' ★'.repeat(p.rating):'')}))];
+    const photos=[...state.expenses.filter(isImg).map(e=>({src:e.photoData,cap:e.desc,sub:nameOf(e.payerId)+' · '+inr(e.paise)})),...state.places.filter(isImg).map(p=>({src:p.photoData,cap:p.name,sub:(p.placeType||'')+(p.rating?' ★'.repeat(p.rating):'')}))];
     if(photos.length>0){
       doc.addPage();doc.setFillColor(245,240,232);doc.rect(0,0,W,H,'F');
       doc.setFont('helvetica','bold');doc.setFontSize(16);doc.setTextColor(30,27,22);doc.text('Memories',m,m+8);
